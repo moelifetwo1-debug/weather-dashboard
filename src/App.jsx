@@ -40,7 +40,13 @@ const fetchWeather = async (city) => {
     throw new Error(errorData.message || 'Unable to fetch weather data.');
   }
 
-  return response.json();
+  const data = await response.json();
+
+  if (!data || !data.main || !Array.isArray(data.weather) || data.weather.length === 0) {
+    throw new Error('Unexpected weather response from the API.');
+  }
+
+  return data;
 };
 
 const fetchForecast = async (city) => {
@@ -53,7 +59,13 @@ const fetchForecast = async (city) => {
     throw new Error(errorData.message || 'Unable to fetch forecast data.');
   }
 
-  return response.json();
+  const data = await response.json();
+
+  if (!data || !Array.isArray(data.list)) {
+    throw new Error('Unexpected forecast response from the API.');
+  }
+
+  return data;
 };
 
 const filterDailyForecast = (forecastList) => {
@@ -67,6 +79,27 @@ const filterDailyForecast = (forecastList) => {
   });
 
   return Array.from(uniqueDays.values()).slice(0, 5);
+};
+
+const getWeatherSummary = (weather) => {
+  if (!weather?.main || !Array.isArray(weather.weather) || weather.weather.length === 0) {
+    return null;
+  }
+
+  const main = weather.main;
+  const details = weather.weather[0];
+
+  return {
+    temp: formatTemp(main.temp),
+    feelsLike: formatTemp(main.feels_like),
+    condition: details.main,
+    description: details.description,
+    sunrise: weather.sys ? getTimeLabel(weather.sys.sunrise) : '—',
+    sunset: weather.sys ? getTimeLabel(weather.sys.sunset) : '—',
+    humidity: formatHumidity(main.humidity),
+    wind: formatWind(weather.wind?.speed ?? 0),
+    visibility: `${Math.round((weather.visibility ?? 0) / 1000)} km`,
+  };
 };
 
 export default function App() {
@@ -111,21 +144,7 @@ export default function App() {
     loadWeather(DEFAULT_CITY);
   }, []);
 
-  const summary = useMemo(() => {
-    if (!weather) return null;
-
-    return {
-      temp: formatTemp(weather.main.temp),
-      feelsLike: formatTemp(weather.main.feels_like),
-      condition: weather.weather[0].main,
-      description: weather.weather[0].description,
-      sunrise: getTimeLabel(weather.sys.sunrise),
-      sunset: getTimeLabel(weather.sys.sunset),
-      humidity: formatHumidity(weather.main.humidity),
-      wind: formatWind(weather.wind.speed),
-      visibility: `${Math.round(weather.visibility / 1000)} km`,
-    };
-  }, [weather]);
+  const summary = useMemo(() => getWeatherSummary(weather), [weather]);
 
   const handleSubmit = (event) => {
     event.preventDefault();
@@ -160,14 +179,16 @@ export default function App() {
         {!weather && !loading ? null : (
           <main className="content-grid">
             <section className="primary-panel card">
-              {weather ? (
+              {weather && summary ? (
                 <>
                   <div className="location-row">
                     <div>
                       <p className="label">Current location</p>
                       <h2>{weather.name}</h2>
                     </div>
-                    <span className="weather-icon">{getWeatherIcon(weather.weather[0].id)}</span>
+                    <span className="weather-icon">
+                      {getWeatherIcon(weather.weather?.[0]?.id)}
+                    </span>
                   </div>
 
                   <div className="temperature-row">
@@ -204,7 +225,7 @@ export default function App() {
 
             <section className="secondary-panel card">
               <p className="label">Sunrise & sunset</p>
-              {weather ? (
+              {weather && summary ? (
                 <div className="sun-times">
                   <div>
                     <span>🌅 Sunrise</span>
@@ -223,11 +244,11 @@ export default function App() {
                 </div>
                 <div>
                   <span>Pressure</span>
-                  <strong>{weather ? `${weather.main.pressure} hPa` : '—'}</strong>
+                  <strong>{weather?.main?.pressure ? `${weather.main.pressure} hPa` : '—'}</strong>
                 </div>
                 <div>
                   <span>Cloud cover</span>
-                  <strong>{weather ? `${weather.clouds.all}%` : '—'}</strong>
+                  <strong>{weather?.clouds?.all !== undefined ? `${weather.clouds.all}%` : '—'}</strong>
                 </div>
               </div>
             </section>
@@ -245,11 +266,11 @@ export default function App() {
               forecast.map((entry) => (
                 <article key={entry.dt} className="forecast-item">
                   <span className="forecast-day">{getDayLabel(entry.dt)}</span>
-                  <div className="forecast-icon">{getWeatherIcon(entry.weather[0].id)}</div>
-                  <strong>{entry.weather[0].main}</strong>
+                  <div className="forecast-icon">{getWeatherIcon(entry.weather?.[0]?.id)}</div>
+                  <strong>{entry.weather?.[0]?.main || 'Weather'}</strong>
                   <div className="forecast-temp">
-                    <span>{formatTemp(entry.main.temp_max)}</span>
-                    <span>{formatTemp(entry.main.temp_min)}</span>
+                    <span>{formatTemp(entry.main?.temp_max ?? 0)}</span>
+                    <span>{formatTemp(entry.main?.temp_min ?? 0)}</span>
                   </div>
                 </article>
               ))
